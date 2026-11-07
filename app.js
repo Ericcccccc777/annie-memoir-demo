@@ -87,7 +87,8 @@ function renderBill(b, o) {
 // 通话
 let lang = "en", live = false, busy = false, ctl = null;
 let turns = [], messages = [], skipped = 0, system = "", gateText = "", phase = "gate", safety = null, handoff = "", callNo = 1, saved = null;
-const personKey = () => `${$("name").value.trim()}:${lang}`;
+// 登录后本地内容按账户分开，同一台电脑换账户不会串
+const personKey = () => `${BACKEND.accountName?.() ? BACKEND.accountName() + "/" : ""}${$("name").value.trim()}:${lang}`;
 function load(kind) { try { return JSON.parse(localStorage.getItem(`${kind}:${personKey()}`)) || {}; } catch { return mem[`${kind}:${personKey()}`] || {}; } }
 const mem = {};
 function keep(kind, v) { mem[`${kind}:${personKey()}`] = v; try { localStorage.setItem(`${kind}:${personKey()}`, JSON.stringify(v)); } catch {} }
@@ -137,7 +138,7 @@ function setLive(b) {
   for (const id of ["call", "name", "full", "family", "relation", "phone", "lang-en", "lang-zh"]) $(id).disabled = b;
   $("state").textContent = b ? "通话中" : "已挂断"; $("state").classList.toggle("live", b); $("state").classList.remove("listening"); $("voice-test").hidden = b || !voiceOn; setBusy(false);
 }
-const COPY = { no_key: "先在左边填邀请码或 API key。", bad_key: "这个 API key 不对，检查一下有没有复制完整。", no_credit: "这个 API 账户余额不够，到平台充值后再试。订阅额度不能用在 API 上。", forbidden: "这个 key 没有权限，或者所在地区用不了这项服务。", bad_model: "这个账户用不了需要的模型。", bad_request: "请求被拒绝了，换一下说法再试。", network: "连不上模型服务，检查一下网络。", openai_blocked: "连不上 OpenAI。最常见的原因是 API key 不对，也可能是 OpenAI 这会儿不接受浏览器直连，可以换 Claude API 试试。", rate_limited: "模型用量到上限或请求太快，稍等一下再试。", refused: "模型拒绝了这条内容，换个说法再试。" };
+const COPY = { no_key: "先在左边登录或填 API key。", bad_key: "这个 API key 不对，检查一下有没有复制完整。", no_credit: "这个 API 账户余额不够，到平台充值后再试。订阅额度不能用在 API 上。", forbidden: "这个 key 没有权限，或者所在地区用不了这项服务。", bad_model: "这个账户用不了需要的模型。", bad_request: "请求被拒绝了，换一下说法再试。", network: "连不上模型服务，检查一下网络。", openai_blocked: "连不上 OpenAI。最常见的原因是 API key 不对，也可能是 OpenAI 这会儿不接受浏览器直连，可以换 Claude API 试试。", rate_limited: "模型用量到上限或请求太快，稍等一下再试。", refused: "模型拒绝了这条内容，换个说法再试。" };
 function complain(e) { if (e.code !== "cancelled") note(e.notice || COPY[e.code] || "连接中断了，请再试一次。", "err"); }
 // 语音：Annie 用浏览器朗读；你用语音识别，这个窗口用不了麦克风时改用系统听写
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition, PAUSE = 3000, IDLE = 60000;
@@ -343,6 +344,69 @@ async function finish(reason) {
   await wrenWrite(transcript);
   show(briefText, outcome, load("book")[callNo] ? '<button class="btn go" id="open-book" type="button">翻开这本书</button>' : "");
   if ($("open-book")) $("open-book").onclick = () => { bookSource = "mine"; pendingChapter = callNo; location.hash = "book"; };
+  BACKEND.refresh?.();
+}
+// 账户的记录放回这个浏览器。换设备登录后，章节、下一通的笔记和进度都接得上
+let pastCalls = [], filled = false;
+function put(kind, person, change) {
+  const k = `${kind}:${person}`;
+  let v = mem[k];
+  try { v = JSON.parse(localStorage.getItem(k)) || v; } catch {}
+  v = v || {}; change(v); mem[k] = v;
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
+}
+function forget(who) { // 退出时清掉，别人用这台电脑看不到
+  const mine = k => k.includes(`:${who}/`);
+  for (const k of Object.keys(mem)) if (mine(k)) delete mem[k];
+  try { for (const k of Object.keys(localStorage)) if (mine(k)) localStorage.removeItem(k); } catch {}
+}
+function applyAccount(account, who) {
+  $("nav-history").hidden = !account;
+  if (!account) { forget(who); pastCalls = []; filled = false; $("call").value = 1; refreshMemory(); renderHistory(null); if (location.hash === "#history") location.hash = "chat"; return; }
+  pastCalls = account.calls;
+  for (const r of pastCalls) {
+    const person = `${who}/${r.name}:${r.lang}`;
+    if (r.sheet) put("brief", person, v => { v[r.call] = r.sheet; });
+    if (r.gaps) put("gaps", person, v => { v.text = r.gaps; });
+    if (r.chapter) put("book", person, v => {
+      const title = (r.chapter.match(/^#\s+(.+)$/m) || [, `第 ${r.call} 章`])[1];
+      v[r.call] = { title, md: r.chapter.replace(/^#\s+.+$/m, "").trim(), pic: PICTURES[r.pic] ? r.pic : CALL_PICTURE[r.call] };
+    });
+  }
+  const last = pastCalls.at(-1);
+  if (last && !filled && !live) { // 只在登录时填一次，之后不盖掉正在填的内容
+    if (last.lang) setLang(last.lang);
+    for (const [id, v] of [["name", last.name], ["full", last.full], ["family", last.family], ["relation", last.relation]]) if (v) $(id).value = v;
+  }
+  if (!filled && !live && !last) $("call").value = 1; // 新账户从第 1 通开始，不沿用这台电脑上别人的进度
+  filled = true;
+  refreshMemory();
+  renderHistory(account);
+}
+const span = s => `${Math.floor(s / 60)} 分 ${s % 60} 秒`;
+const PROVIDER_NAMES = { claude: "Claude", gpt: "GPT" };
+function renderHistory(account) {
+  if (!account) { $("history-list").replaceChildren(); $("history-sum").textContent = ""; return; }
+  const seconds = pastCalls.reduce((n, r) => n + (r.real || r.seconds || 0), 0);
+  $("history-sum").textContent = pastCalls.length ? `${pastCalls.length} 通，${span(seconds)}。已用 $${account.spent.toFixed(4)}，额度 $${account.limit_usd}。` : "还没有通话。打完第一通，这里就有了。";
+  $("history-list").replaceChildren(...[...pastCalls].reverse().map(r => {
+    const item = document.createElement("details"), head = document.createElement("summary"), body = document.createElement("div");
+    item.className = "past page"; body.className = "past-body";
+    head.textContent = `第 ${r.call} 通 · ${r.name} · ${(r.providers || "").split(",").map(p => PROVIDER_NAMES[p] || p).join("、")} · ${span(r.real || r.seconds || 0)} · $${(r.usd || 0).toFixed(4)}`;
+    for (const t of r.turns || []) {
+      const line = document.createElement("p"), who = document.createElement("span");
+      who.className = "who"; who.textContent = t.who === "annie" ? "Annie" : "你";
+      line.append(who, t.text); body.append(line);
+    }
+    if (r.chapter) {
+      const title = document.createElement("h2"), text = document.createElement("div");
+      title.textContent = (r.chapter.match(/^#\s+(.+)$/m) || [, "这一章"])[1];
+      text.className = "past-chapter"; text.textContent = r.chapter.replace(/^#\s+.+$/m, "").trim();
+      body.append(title, text);
+    }
+    item.append(head, body);
+    return item;
+  }));
 }
 async function wrenWrite(transcript) {
   const book = load("book");
@@ -361,7 +425,7 @@ async function wrenWrite(transcript) {
     const md = chapter.replace(/^PICTURE:.*$/m, "").replace(/\s*<!--[\s\S]*?-->/g, "").trim();
     const title = (md.match(/^#\s+(.+)$/m) || [, `第 ${callNo} 章`])[1];
     book[callNo] = { title, md: md.replace(/^#\s+.+$/m, "").trim(), pic: PICTURES[pic] ? pic : CALL_PICTURE[callNo] };
-    keep("book", book); keep("gaps", { text: (gaps || "None").trim() }); saveCall({ chapter: `# ${title}\n\n${book[callNo].md}` });
+    keep("book", book); keep("gaps", { text: (gaps || "None").trim() }); saveCall({ chapter: `# ${title}\n\n${book[callNo].md}`, pic: book[callNo].pic, gaps: (gaps || "None").trim() });
     refreshMemory();
   } catch (e) { complain(e); }
 }
@@ -724,8 +788,8 @@ function showScene(i) {
 let filmPlaying = false;
 function route() {
   const raw = (location.hash || "#chat").slice(1), [h, sub] = raw.split("/"), old = h === "annie" || h === "wren"; // 旧链接还能打开
-  const view = old ? "agents" : ["chat", "book", "covers", "agents", "story"].includes(h) ? h : "chat";
-  for (const v of ["chat", "book", "covers", "agents", "story"]) $("view-" + v).hidden = v !== view;
+  const view = old ? "agents" : ["chat", "history", "book", "covers", "agents", "story"].includes(h) ? h : "chat";
+  for (const v of ["chat", "history", "book", "covers", "agents", "story"]) $("view-" + v).hidden = v !== view;
   if (view === "agents") { const id = old ? h : sub; pickAgent(AGENTS.some(a => a.id === id) ? id : agentAt, false); }
   if (view === "story") { buildFilm(); requestAnimationFrame(() => showScene(0)); } else { clearTimeout(filmTimer); filmPlaying = false; $("film-play").textContent = "自动播放"; }
   if (view === "covers") renderCovers();
@@ -761,5 +825,6 @@ $("stage").addEventListener("touchstart", e => { touchX = e.touches[0].clientX; 
 $("stage").addEventListener("touchend", e => { if (touchX === null) return; const d = e.changedTouches[0].clientX - touchX; touchX = null; if (Math.abs(d) > 40) turn(d < 0 ? 1 : -1); });
 addEventListener("hashchange", route);
 route(); refreshMemory();
+BACKEND.onAccount = applyAccount; BACKEND.sync?.();
 const exampleTurns = []; for (let i = 0; i < 26; i++) exampleTurns.push({ who: i % 2 ? "you" : "annie", text: "x".repeat(i % 2 ? 420 : 120) });
 renderBill(billFor({ seconds: 720, phone: "mobile", system: P.core + P.calls[2], turns: exampleTurns, brief: "x".repeat(2600), transcript: "x".repeat(8000) }), { example: true, phone: "mobile", title: "话费单：12 分钟打手机" });

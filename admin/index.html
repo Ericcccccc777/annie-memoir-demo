@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://memoir-relay.ericcheng-demo.workers.dev; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="relay" content="https://memoir-relay.ericcheng-demo.workers.dev">
+<link rel="icon" href="data:,">
+<title>回忆录后台</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Noto+Serif+SC:wght@400;500&display=swap">
+<style>
+/* 一句主张：这是一本账。每个人一页，翻开就是他花了多少、说了什么。沿用前台纸的世界。 */
+:root {
+  --desk: #f4f1e9; --paper: #fbf9f3; --rule: #ddd6c7; --rule-soft: #e9e4d8;
+  --ink: #26231e; --soft: #6b6458; --clay: #b4552e; --clay-deep: #8f3f20; --on-clay: #fbf9f3;
+  --serif: "Newsreader", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body { margin: 0; background: var(--desk); color: var(--ink); font: 18px/1.6 var(--serif); padding: 0 max(16px, env(safe-area-inset-left, 0px)) 72px; -webkit-font-smoothing: antialiased; font-variant-numeric: lining-nums tabular-nums; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-block: 22px 12px; border-bottom: 1px solid var(--rule); margin-bottom: 34px; }
+.brand { font-size: 23px; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; font-weight: 400; margin: 0 0 8px; }
+h2 { font-size: 24px; line-height: 1.25; font-weight: 400; margin: 44px 0 12px; }
+h3 { font-size: 20px; font-weight: 500; margin: 22px 0 8px; }
+p { margin: 0; }
+.soft { color: var(--soft); }
+.bad { color: var(--clay-deep); }
+.btn { font: inherit; padding: 7px 16px; border-radius: 8px; border: 1px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--rule-soft); }
+.btn.go { background: var(--clay); border-color: var(--clay); color: var(--on-clay); }
+.btn.go:hover { background: var(--clay-deep); border-color: var(--clay-deep); }
+.btn.quiet { border-color: var(--rule); color: var(--soft); }
+.link { border: 0; background: none; padding: 0; font: inherit; color: var(--clay-deep); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 3px; }
+label { display: grid; color: var(--soft); min-width: 0; }
+input { font: inherit; color: var(--ink); background: transparent; border: 0; border-bottom: 1px solid var(--rule); padding: 3px 0; width: 100%; min-width: 0; border-radius: 0; }
+.sheet { background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 10px; padding: 22px 26px; }
+#gate { max-width: 420px; margin: 12vh auto 0; display: grid; gap: 18px; }
+#gate .btn { justify-self: start; }
+.totals { display: flex; flex-wrap: wrap; gap: 14px 56px; }
+.num { font-size: 40px; line-height: 1.1; font-weight: 300; }
+.make { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 124px 88px auto; gap: 14px 20px; align-items: end; }
+.made { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule-soft); display: grid; gap: 8px; }
+.pair { user-select: all; font-size: 20px; overflow-wrap: anywhere; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule-soft); vertical-align: baseline; white-space: nowrap; }
+th { color: var(--soft); font-weight: 400; }
+td.wide { white-space: normal; min-width: 150px; }
+tbody tr.pick { cursor: pointer; }
+tbody tr.pick:hover, tbody tr[aria-selected="true"] { background: var(--rule-soft); }
+.tools { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 8px; color: var(--soft); }
+.call { border-top: 1px solid var(--rule-soft); padding-block: 10px; }
+.call summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 24px; }
+.body { padding-block: 8px 12px; }
+.line { margin-block: 8px; overflow-wrap: anywhere; }
+.line b { font-weight: 500; color: var(--clay-deep); margin-right: 12px; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+[hidden] { display: none !important; }
+@media (max-width: 760px) { .make { grid-template-columns: 1fr 1fr; } .sheet { padding: 18px; } .make .btn { justify-self: start; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="brand">回忆录后台</span><button class="link" id="out" type="button" hidden>退出</button></header>
+  <form class="sheet" id="gate">
+    <h1>管理员登录</h1>
+    <label>管理员密码<input id="key" type="password" autocomplete="current-password" required></label>
+    <button class="btn go" type="submit">进入</button>
+    <p class="bad" id="gate-note" role="status"></p>
+  </form>
+  <main id="main" hidden>
+    <div class="totals" id="totals"></div>
+    <h2>新建账户</h2>
+    <div class="sheet">
+      <form class="make" id="make">
+        <label>账户名<input id="username" required maxlength="32" autocapitalize="none" spellcheck="false" placeholder="amy"></label>
+        <label>给谁<input id="note" maxlength="80" placeholder="Amy，产品测试"></label>
+        <label>额度（美元）<input id="limit" type="number" min="0.1" max="100" step="0.1" value="5" required></label>
+        <label>有效天数<input id="days" type="number" min="1" max="365" value="90" required></label>
+        <button class="btn go" type="submit">建好</button>
+      </form>
+      <p class="bad" id="make-note" role="status"></p>
+      <div class="made" id="made" hidden></div>
+    </div>
+    <h2>账户</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>账户</th><th>给谁</th><th>花费 / 额度</th><th>通数</th><th>时长</th><th>最近使用</th></tr></thead>
+      <tbody id="accounts"></tbody>
+    </table></div>
+    <section id="detail" hidden></section>
+  </main>
+</div>
+<script src="admin.js?v=7b70112b09"></script>
+</body>
+</html>
